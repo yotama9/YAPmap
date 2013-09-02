@@ -12,6 +12,7 @@ a little different from one - another.
 import sys,os
 from PyQt4 import QtGui, QtCore
 from tile import *
+from random import random
 
 class MainGui(QtGui.QWidget):
     
@@ -90,8 +91,8 @@ class MainGui(QtGui.QWidget):
         tText = self.tileCombo2.currentText()
         tileData = self.tileDB[fam][tText]
         for sel in self.selectedTiles:
-            tile=self.tiles[sel].write(tileData,tText)
-#        self.surroundTiles()
+            self.tiles[sel].write(tileData,tText)
+        self.surroundTiles()
         self.update()
         self.selectedTiles = []
 
@@ -179,8 +180,8 @@ class MainGui(QtGui.QWidget):
         width= self.frameSize().width()
         height = self.frameSize().height()
         
-        maxI = (width - 150)/50 - 1
-        maxJ = (height - 100)/150 - 1
+        self.maxI = (width - 150)/50 - 1
+        self.maxJ = (height - 100)/50 - 1
 
         #Drawing the grid
         pen.setStyle(QtCore.Qt.DotLine)
@@ -208,28 +209,102 @@ class MainGui(QtGui.QWidget):
         qp.drawLine(self.endX,self.startY,self.endX,self.endY)
         qp.drawLine(self.startX,self.endY,self.endX,self.endY)
         
-    def getNeighbors(tileIndex):
+    def immediateSurround(self,ij):
+        # Get all the tiles arround a certain tile
         out = []
-        for i in [-1,0,1]:
-            for j in [-1,0,1]:
-                out.append (tileIndex[0]+i,tileIndex[1]+j)
+        for r in range (2,0,-1):
+            vals = self.radiuses[r]
+            for v in vals:
+                out.append((v[0] + ij[0], v[1] + ij[1]))
         return out
 
     def getSurrounding(self,sel):
-        out = []
+        out = dict()
+        # A function to get the surrounding tiles about a single one
+        # The surrounding is defined as any tiles at a distance of
+        # 3 tiles about the center one
         for r in range (18,0,-1):
             if not r in self.radiuses: continue
             vals = self.radiuses[r]
-            print (vals)
+            for v in vals:
+                i,j= v[0] + sel[0], v[1] + sel[1]
+                ij = (i,j)
+                #Remove any invalid choices
+                if i < 0 or j < 0: continue
+                if i > self.maxI or j > self.maxJ: 
+                    continue
+                if ij in self.tiles and len (self.tiles[ij].types) > 0: continue
+                out[ij]=r
+        return out
+
+
+    def decideSurround(self,cands, tText):
+        for r in cands:
+            for ij in cands[r]:
+                if ij in self.selectedTiles: 
+                    continue
+                iSur = self.immediateSurround(ij)
+                score = dict()
+                for sur in iSur:
+                    if not sur in self.tiles: continue
+                    types = self.tiles[sur].types
+                    for t in types:
+                        if t in score:
+                            score[t] += 1
+                        else:
+                            score[t] = 1
+                toPut = self.placeSurround(tText,score,r)
+                if not toPut: continue 
+                else:
+                    tileData = self.tileDB['Mountains'][toPut]
+                    self.tiles[ij].write(tileData,toPut)
+        
+        
+    def placeSurround(self,tText,score,r):
+
+        if (tText == 'easy mountains'):
+            prob = 0.3/r
+            if 'easy mountains' in score:
+                prob += 0.1*score['easy mountains']/r
+            elif 'hills' in score:
+                prob += 0.025/r
+            rval =random()
+            if prob > rval:
+                return 'hills'
+            else:
+                return False
+        return False
+            
         
     def surroundTiles(self):
         ''' A function to try and fill tiles which sourund 
         the selected tiles ''' 
-
+        tText = self.tileCombo2.currentText()        
+        #####
+        # Add a part that determine if the drawn tile should generate
+        # surrounding
+        #####
+        candsByIJ = dict()
         for sel in self.selectedTiles:
+            # Getting the surrounding
             neighbors = self.getSurrounding(sel)
-                
+            for ij in neighbors:
+                # Placing each tile once in the cands dict
+                # Giving the shortest possible distance
+                r = neighbors[ij]
+                if not ij in candsByIJ:
+                    candsByIJ[ij] = r
+                elif candsByIJ[ij] > r:
+                    candsByIJ[ij] = r
+        #sort the cands by distance
+        cands = dict()
+        for ij in candsByIJ:
+            r = candsByIJ[ij]
+            if not r in cands:
+                cands[r] = []
+            cands[r].append(ij)
                     
+        self.decideSurround(cands,tText)
 
             
     def mouseMoveEvent(self,e):
@@ -389,3 +464,4 @@ def main():
     
 if __name__ == '__main__':
     main()
+
